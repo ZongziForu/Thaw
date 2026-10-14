@@ -3,6 +3,23 @@
 import AppKit
 import SwiftUI
 
+/// WeChat can leave its offscreen backing surface blank after AX activation.
+/// Use its locally installed application artwork in the scroll preview; this
+/// deliberately does not claim to represent native unread badges.
+@MainActor
+enum MenuBarScrollIconAssets {
+    static let weChat: NSImage? = {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.tencent.xinWeChat") else {
+            return nil
+        }
+        let applicationIcon = NSWorkspace.shared.icon(forFile: url.path)
+        return NSImage(size: NSSize(width: 28, height: 30), flipped: false) { _ in
+            applicationIcon.draw(in: NSRect(x: 4, y: 5, width: 20, height: 20))
+            return true
+        }
+    }()
+}
+
 nonisolated enum MenuBarScrollGeometry {
     static func viewport(screen: CGRect, menuHeight: CGFloat,
                          leftBoundary: CGFloat, pinnedBoundary: CGFloat) -> CGRect? {

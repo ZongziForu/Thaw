@@ -21,6 +21,10 @@ its origin and width only when those bounds change. This timer stops on close.
 Hover and unchanged image refresh no longer reset the scrolling offset or
 interrupt momentum. Tooltips in this mode use at most a 120 ms delay and track
 only the visible portion of each clipped item.
+The scroll viewport does not draw hover highlights, avoiding retained hover
+state after clipping or scrolling. WeChat uses artwork from its locally installed
+application instead of its unreliable offscreen capture. This entry remains
+clickable but does not display the native unread badge.
 
 ## Scope and limitations
 
@@ -68,5 +72,9 @@ original experience, quit the preview and launch `/Applications/Thaw.app`.
   scrolling, and transparent WeChat captures replacing its icon. The continuity
   corrections and their regression tests are under validation. Resource
   measurements remain pending.
+- The transparent-capture guard did not restore WeChat in the user's retest.
+  A local application-icon rendering path now bypasses that capture entirely.
+  Retained hover highlights are removed for the scroll layout. These UI changes
+  require another physical retest after the new build is installed.
 
 The source remains GPLv3, following Thaw's license.

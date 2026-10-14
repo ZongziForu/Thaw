@@ -892,6 +892,11 @@ private struct IceBarItemView: View {
     }
 
     private var image: NSImage? {
+        if prefersDirectActivation,
+           item.tag.namespace == .string("com.tencent.xinWeChat"),
+           let icon = MenuBarScrollIconAssets.weChat {
+            return icon
+        }
         guard let cachedImage = imageCache.images[item.tag] else {
             return nil
         }
@@ -927,7 +932,8 @@ private struct IceBarItemView: View {
                 .frame(width: size.width, height: size.height)
                 .background {
                     RoundedRectangle(cornerRadius: pillCornerRadius, style: hasRoundedShape ? .circular : .continuous)
-                        .fill((isLightBackground ? Color.black : Color.white).opacity(isHovered ? 0.15 : 0))
+                        .fill((isLightBackground ? Color.black : Color.white)
+                            .opacity(isHovered && !prefersDirectActivation ? 0.15 : 0))
                         .padding(.vertical, 3)
                 }
                 .contentShape(Rectangle())
@@ -938,7 +944,7 @@ private struct IceBarItemView: View {
                         leftClickAction: leftClickAction,
                         rightClickAction: rightClickAction,
                         onHover: { hovering in
-                            isHovered = hovering
+                            if !prefersDirectActivation { isHovered = hovering }
                         }
                     )
                 }
