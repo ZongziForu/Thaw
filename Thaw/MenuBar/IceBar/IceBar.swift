@@ -400,6 +400,7 @@ private struct IceBarContentView: View {
     let menuBarManager: MenuBarManager
     @State private var frame = CGRect.zero
     @State private var liveScrollViewport: CGRect?
+    @AppStorage("ScrollClickPositionMenus") private var anchorsMenusAtClick = false
     @State private var scrollIndicatorsFlashTrigger = 0
     @State private var cacheGracePeriodActive = true
     @State private var loadingTimedOut = false
@@ -708,7 +709,8 @@ private struct IceBarContentView: View {
                                 hasRoundedShape: configuration.hasRoundedShape,
                                 tooltipDelay: min(0.12, appState.settings.advanced.tooltipDelay),
                                 isLightBackground: isLightBackground,
-                                prefersDirectActivation: true
+                                prefersDirectActivation: true,
+                                anchorsMenusAtClick: anchorsMenusAtClick
                             )
                         }
                     }
@@ -808,6 +810,7 @@ private struct IceBarItemView: View {
     let tooltipDelay: TimeInterval
     let isLightBackground: Bool
     var prefersDirectActivation = false
+    var anchorsMenusAtClick = false
 
     private var pillCornerRadius: CGFloat {
         guard let h = maxHeight, h > 0 else { return 4 }
@@ -820,6 +823,7 @@ private struct IceBarItemView: View {
                 return
             }
             let clickStartTime = Date.now
+            let clickX = anchorsMenusAtClick ? NSEvent.mouseLocation.x : nil
             IceBarItemView.diagLog.debug("leftClick: user clicked \(item.logString)")
             let panel = menuBarManager.iceBarPanel
             menuBarManager.section(withName: section)?.hide()
@@ -828,7 +832,8 @@ private struct IceBarItemView: View {
                 // item visibility. Uses KVO on isVisible so we resume as soon
                 // as the panel hides rather than busy-polling.
                 await panel.waitUntilClosed(timeout: .milliseconds(200))
-                if let liveItem = await liveOnScreenItem(matching: item, on: displayID) {
+                let positionsThisMenu = anchorsMenusAtClick && item.tag.namespace == .string("com.thermalforge.app")
+                if !positionsThisMenu, let liveItem = await liveOnScreenItem(matching: item, on: displayID) {
                     do {
                         try await itemManager.click(item: liveItem, with: .left)
                         let duration = Date.now.timeIntervalSince(clickStartTime)
@@ -846,7 +851,7 @@ private struct IceBarItemView: View {
                     // temporarilyShow handles move, click, and fallback click
                     // internally so that shownInterfaceWindow is always captured
                     // regardless of which click attempt succeeds.
-                    let result = await itemManager.temporarilyShow(item: item, clickingWith: .left, on: displayID, fastPath: true)
+                    let result = await itemManager.temporarilyShow(item: item, clickingWith: .left, on: displayID, fastPath: true, scrollClickX: clickX)
                     let duration = Date.now.timeIntervalSince(clickStartTime)
                     IceBarItemView.diagLog.debug("leftClick: completed in \(Int(duration * 1000))ms (temp-show path, result=\(result))")
                 }

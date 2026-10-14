@@ -52,6 +52,7 @@ extension MenuBarItemManager {
         /// shown. Used as a last-resort fallback when both neighbor-based
         /// destinations are stale.
         let originalSection: MenuBarSection.Name
+        let scrollMenuAnchorLease: ScrollMenuAnchorLease?
 
         /// The window of the item's shown interface.
         var shownInterfaceWindow: WindowInfo?
@@ -189,7 +190,8 @@ extension MenuBarItemManager {
             displayID: CGDirectDisplayID,
             returnDestination: MoveDestination,
             fallbackNeighbor: (tag: MenuBarItemTag, pid: pid_t)?,
-            originalSection: MenuBarSection.Name
+            originalSection: MenuBarSection.Name,
+            scrollMenuAnchorLease: ScrollMenuAnchorLease? = nil
         ) {
             self.tag = tag
             self.sourcePID = sourcePID
@@ -198,6 +200,7 @@ extension MenuBarItemManager {
             self.returnDestination = returnDestination
             self.fallbackNeighbor = fallbackNeighbor
             self.originalSection = originalSection
+            self.scrollMenuAnchorLease = scrollMenuAnchorLease
         }
     }
 
@@ -526,7 +529,7 @@ extension MenuBarItemManager {
     ///   click succeeded. Only act on ``TemporaryShowResult/movedButClickFailed``
     ///   for fallback clicks; the item is hidden for every other non-success case.
     @discardableResult
-    func temporarilyShow(item: MenuBarItem, clickingWith mouseButton: CGMouseButton, on displayID: CGDirectDisplayID? = nil, fastPath: Bool = false) async -> TemporaryShowResult {
+    func temporarilyShow(item: MenuBarItem, clickingWith mouseButton: CGMouseButton, on displayID: CGDirectDisplayID? = nil, fastPath: Bool = false, scrollClickX: CGFloat? = nil) async -> TemporaryShowResult {
         guard let appState else {
             MenuBarItemManager.diagLog.error("Missing AppState, so not showing \(item.logString)")
             return .showFailed
@@ -623,6 +626,24 @@ extension MenuBarItemManager {
 
         let moveDestination: MoveDestination = .leftOfItem(anchor)
 
+        // First prove the positioning mechanism with ThermalForge. Other
+        // applications keep the verified baseline activation path.
+        var scrollLease: ScrollMenuAnchorLease?
+        if let scrollClickX, item.tag.namespace == .string("com.thermalforge.app"),
+           anchor.tag == .visibleControlItem,
+           let screen = NSScreen.screens.first(where: { $0.displayID == resolvedDisplayID }),
+           let anchorBounds = Bridging.getWindowBounds(for: anchor.windowID) {
+            let menuEnd = screen.getApplicationMenuFrame()?.maxX ?? screen.frame.minX + 240
+            let minimumX = max(menuEnd + 8, screen.frameOfNotch.map { $0.maxX + 8 } ?? screen.frame.minX)
+            if let plan = ScrollMenuAnchorGeometry.plan(anchor: anchorBounds, itemWidth: item.liveBounds.width,
+                                                        requestedX: scrollClickX, minimumX: minimumX),
+               let control = appState.menuBarManager.controlItem(withName: .visible) {
+                scrollLease = control.beginScrollMenuAnchor(plan: plan)
+                MenuBarItemManager.diagLog.notice("Scroll menu anchor: requested=\(scrollClickX) target=\(plan.centerX) length=\(plan.length)")
+                await eventSleep(for: .milliseconds(60))
+            }
+        }
+
         // Record the item's original section early so we can relocate it if its app
         // quits before we get a chance to rehide it (macOS persists the
         // physical position set by the Cmd+drag, so on relaunch the icon
@@ -708,7 +729,8 @@ extension MenuBarItemManager {
             displayID: resolvedDisplayID,
             returnDestination: returnInfo.destination,
             fallbackNeighbor: returnInfo.fallbackNeighbor,
-            originalSection: originalSection
+            originalSection: originalSection,
+            scrollMenuAnchorLease: scrollLease
         )
         temporarilyShownItemContexts.append(context)
 
@@ -737,6 +759,17 @@ extension MenuBarItemManager {
             // apps need time to process the window relocation before they can
             // correctly position their popup in response to a click.
             await waitForItemPositionToSettle(item: item)
+        }
+
+        if let scrollLease {
+            if !(await scrollLease.settle(itemWindowID: item.windowID)) {
+                scrollLease.release()
+                await eventSleep(for: .milliseconds(50))
+                MenuBarItemManager.diagLog.notice("Scroll menu anchor: alignment failed; restored baseline position")
+            }
+            if let bounds = Bridging.getWindowBounds(for: item.windowID) {
+                MenuBarItemManager.diagLog.notice("Scroll menu anchor: actualCenter=\(bounds.midX) requested=\(scrollClickX ?? 0)")
+            }
         }
 
         // Re-fetch the item so getCurrentBounds inside postClickEvents uses
@@ -1029,6 +1062,7 @@ extension MenuBarItemManager {
                 let tagIdentifier = context.tag.tagIdentifier
                 pendingRelocations.removeValue(forKey: tagIdentifier)
                 pendingReturnDestinations.removeValue(forKey: tagIdentifier)
+                context.scrollMenuAnchorLease?.release()
             } catch {
                 context.rehideAttempts += 1
                 MenuBarItemManager.diagLog.warning(

@@ -176,6 +176,29 @@ final class ControlItem {
 
     /// The control item's identifier.
     let identifier: Identifier
+    private var scrollMenuAnchor: (token: UUID, length: CGFloat)?
+
+    func beginScrollMenuAnchor(plan: ScrollMenuAnchorGeometry.Plan) -> ScrollMenuAnchorLease? {
+        guard identifier == .visible, scrollMenuAnchor == nil,
+              let window, window.frame.width > 0 else { return nil }
+        let token = UUID()
+        let normalWidth = window.frame.width
+        scrollMenuAnchor = (token, plan.length)
+        updateStatusItem()
+        return ScrollMenuAnchorLease(control: self, token: token, minimumLength: normalWidth, plan: plan)
+    }
+
+    func adjustScrollMenuAnchor(token: UUID, length: CGFloat) {
+        guard scrollMenuAnchor?.token == token else { return }
+        scrollMenuAnchor = (token, length)
+        updateStatusItem()
+    }
+
+    func endScrollMenuAnchor(token: UUID) {
+        guard scrollMenuAnchor?.token == token else { return }
+        scrollMenuAnchor = nil
+        updateStatusItem()
+    }
 
     /// Lazy storage for the control item's underlying status item.
     private lazy var storage = StatusItemStorage(controlItem: self)
@@ -625,7 +648,7 @@ final class ControlItem {
                 image = originalImage.resized(to: newSize)
             }
 
-            button.image = image
+            button.image = scrollMenuAnchor == nil ? image : nil
         case .hidden, .alwaysHidden:
             switch state {
             case .showSection:
@@ -676,7 +699,7 @@ final class ControlItem {
 
         if isVisible {
             constraint?.isActive = true
-            statusItem.length = identifier.length(for: state)
+            statusItem.length = scrollMenuAnchor?.length ?? identifier.length(for: state)
 
             let shouldUseSpacers = (identifier == .hidden || identifier == .alwaysHidden) && state == .hideSection
             updateSpacerItems(forHiddenState: shouldUseSpacers)

@@ -716,6 +716,7 @@ private struct IceBarConfigurationControls<ExtraControls: View>: View {
     private let context: Context
     private let extraControls: () -> ExtraControls
     @State private var maxSliderLabelWidth: CGFloat = 0
+    @AppStorage("ScrollClickPositionMenus") private var anchorsMenusAtClick = false
 
     /// Whether anything opens in the Thaw Bar, and so whether its appearance
     /// controls apply.
@@ -783,6 +784,11 @@ private struct IceBarConfigurationControls<ExtraControls: View>: View {
             }
 
         extraControls()
+
+        if layout == .menuBarScroll {
+            Toggle("Menus near click position (experimental)", isOn: $anchorsMenusAtClick)
+                .annotation("Currently tests ThermalForge only. Other items use their existing menu positions.")
+        }
 
         if showsThawBar {
             IcePicker("Location", selection: $location) {
