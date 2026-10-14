@@ -79,6 +79,8 @@ original experience, quit the preview and launch `/Applications/Thaw.app`.
 - The user subsequently reported that ThermalForge and other menus did not open.
   The generic offscreen AX path accepted actions without proving the menu was
   visible. Direct activation is now limited to the verified WeChat owner; other
-  owners return to the temporary reveal path. Menu compatibility is being retested.
+  owners return to the temporary reveal path. The user then confirmed that both
+  ThermalForge and WeChat open normally. Logs show ThermalForge taking 697 ms
+  through the temporary reveal path and WeChat taking 122 ms via direct AX.
 
 The source remains GPLv3, following Thaw's license.
