@@ -51,8 +51,10 @@ original experience, quit the preview and launch `/Applications/Thaw.app`.
 ## Validation status
 
 - Debug build succeeds.
-- Five focused Swift Testing cases pass: viewport boundaries, narrow space,
-  negative display coordinates, unavailable space, and layout enum compatibility.
+- 35 focused Swift Testing cases across four suites pass: viewport boundaries,
+  layout compatibility, AX candidate selection, click reaction verification,
+  and preservation of visible captures across transparent refreshes.
+- The final arm64 Release build and deep strict signature verification succeed.
 - Both macOS permissions granted through System Settings on the test Mac.
 - The user confirmed that icons appear in the menu-bar row and horizontal
   scrolling works on the built-in display.
