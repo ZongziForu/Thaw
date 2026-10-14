@@ -29,9 +29,9 @@ clickable but does not display the native unread badge.
 ## Scope and limitations
 
 Icon previews still use Thaw's existing capture implementation. Left clicks in
-the scroll viewport first try the owning app's verified Accessibility element
-without moving the hidden native item or the pointer. Unsupported items fall
-back to Thaw's existing temporary reveal and click forwarding; that fallback
+the scroll viewport use direct Accessibility activation only for WeChat, which
+was verified on the target Mac. Other items use Thaw's existing temporary reveal
+and click forwarding; that path
 can still reposition the pointer briefly. Synthetic clicks hide the pointer
 before warping and install restoration before the asynchronous settle delay.
 Screen Recording and Accessibility permissions are therefore required for the
@@ -76,5 +76,9 @@ original experience, quit the preview and launch `/Applications/Thaw.app`.
   A local application-icon rendering path now bypasses that capture entirely.
   Retained hover highlights are removed for the scroll layout. These UI changes
   require another physical retest after the new build is installed.
+- The user subsequently reported that ThermalForge and other menus did not open.
+  The generic offscreen AX path accepted actions without proving the menu was
+  visible. Direct activation is now limited to the verified WeChat owner; other
+  owners return to the temporary reveal path. Menu compatibility is being retested.
 
 The source remains GPLv3, following Thaw's license.

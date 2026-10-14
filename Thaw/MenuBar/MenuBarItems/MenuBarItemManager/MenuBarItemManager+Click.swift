@@ -230,11 +230,14 @@ extension MenuBarItemManager {
         return AXHelpers.press(target)
     }
 
-    /// Opens a hidden item directly from its owning application's AX element.
+    /// Opens the verified WeChat item directly from its owning AX element.
+    /// Other owners must use the existing temporary reveal path: an accepted
+    /// AX action on an offscreen item need not produce an on-screen menu.
     /// An accepted action is not repeated, even for toggle-only items whose
     /// reaction cannot be observed. A failed action that opened a menu is also
     /// treated as handled, so the fallback cannot immediately close that menu.
     func activateHiddenItemWithoutMoving(_ item: MenuBarItem) async -> Bool {
+        guard item.tag.namespace == .string("com.tencent.xinWeChat") else { return false }
         guard appState?.settings.advanced.useAXClickDelivery == true else { return false }
         let snapshot = ClickReactionVerifier.snapshot(for: item)
         do {
