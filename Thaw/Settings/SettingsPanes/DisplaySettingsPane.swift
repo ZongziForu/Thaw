@@ -765,7 +765,9 @@ private struct IceBarConfigurationControls<ExtraControls: View>: View {
             }
 
         Toggle("Use \(Constants.displayName) Bar", isOn: $useIceBar)
-            .annotation("Show hidden menu bar items in a separate bar below the menu bar.")
+            .annotation(layout == .menuBarScroll
+                ? "Scroll hidden items in the menu bar while visible items stay in place."
+                : "Show hidden menu bar items in a separate bar below the menu bar.")
 
         Toggle("Always-hidden items only", isOn: $useThawBarForAlwaysHidden)
             .disabled(useIceBar)
@@ -788,6 +790,7 @@ private struct IceBarConfigurationControls<ExtraControls: View>: View {
                     Text(location.localized).tag(location)
                 }
             }
+            .disabled(layout == .menuBarScroll)
             .annotation { locationAnnotation }
 
             IcePicker("Arrangement", selection: $layout) {
@@ -825,7 +828,9 @@ private struct IceBarConfigurationControls<ExtraControls: View>: View {
 
     @ViewBuilder
     private var locationAnnotation: some View {
-        switch location {
+        if layout == .menuBarScroll {
+            Text("Uses available menu-bar space before visible items. If space is insufficient, opens below the menu bar.")
+        } else { switch location {
         case .dynamic:
             Text("The \(Constants.displayName) Bar's location changes based on context.")
         case .mousePointer:
@@ -837,11 +842,14 @@ private struct IceBarConfigurationControls<ExtraControls: View>: View {
         case .rightAligned:
             Text("The \(Constants.displayName) Bar is aligned to the right edge of the display.")
         }
+        }
     }
 
     @ViewBuilder
     private var layoutAnnotation: some View {
         switch layout {
+        case .menuBarScroll:
+            Text("Swipe horizontally to browse hidden items; visible items remain in place.")
         case .horizontal:
             Text("Items are arranged in a single horizontal row.")
         case .vertical:

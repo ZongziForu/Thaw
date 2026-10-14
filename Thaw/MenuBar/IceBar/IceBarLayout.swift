@@ -19,6 +19,9 @@ nonisolated enum IceBarLayout: Int, CaseIterable, Codable, Identifiable {
     /// Items are arranged in a grid with a configurable number of columns.
     case grid = 2
 
+    /// Hidden icons scroll in the menu bar, beside the native visible section.
+    case menuBarScroll = 3
+
     var id: Int {
         rawValue
     }
@@ -29,6 +32,7 @@ nonisolated enum IceBarLayout: Int, CaseIterable, Codable, Identifiable {
         case .horizontal: "Horizontal"
         case .vertical: "Vertical"
         case .grid: "Grid"
+        case .menuBarScroll: "Menu Bar Scroll"
         }
     }
 
@@ -43,6 +47,8 @@ nonisolated enum IceBarLayout: Int, CaseIterable, Codable, Identifiable {
             return .vertical
         case "grid", "2":
             return .grid
+        case "menuBarScroll", "3":
+            return .menuBarScroll
         default:
             return nil
         }

@@ -222,6 +222,15 @@ final class HIDEventManager {
         } else {
             return event
         }
+        // A scrolling viewport occupies space that the native item cache
+        // considers empty. Let its views receive mouse-down/up without the
+        // global empty-space handler toggling the panel closed first.
+        let scrollPanel = appState.menuBarManager.iceBarPanel
+        if scrollPanel.isVisible,
+           appState.settings.displaySettings.configuration(for: screen.displayID).iceBarLayout == .menuBarScroll,
+           scrollPanel.frame.contains(NSEvent.mouseLocation) {
+            return event
+        }
         // Cancel any pending secondary-context-menu task on every mouse-down so
         // a dismiss click or a follow-up click can't be raced by a previously
         // scheduled reveal that hasn't yet cleared its 100ms delay.
@@ -1581,6 +1590,10 @@ extension HIDEventManager {
         appState: AppState,
         screen: NSScreen
     ) {
+        let panel = appState.menuBarManager.iceBarPanel
+        if panel.isVisible,
+           appState.settings.displaySettings.configuration(for: screen.displayID).iceBarLayout == .menuBarScroll,
+           let location = MouseHelpers.locationAppKit, panel.frame.contains(location) { return }
         guard
             appState.settings.general.showOnScroll,
             isMouseInsideEmptyMenuBarSpace(appState: appState, screen: screen),

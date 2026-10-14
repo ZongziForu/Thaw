@@ -85,6 +85,13 @@ extension MenuBarItemManager {
             throw EventError.eventCreationFailure(item)
         }
 
+        // Hide before the warp, and install cleanup before any suspension so
+        // cancellation during the settle delay cannot strand the pointer.
+        MouseHelpers.hideCursor()
+        defer {
+            MouseHelpers.restoreCursorPosition(to: mouseLocation)
+            MouseHelpers.showCursor()
+        }
         // Warp the cursor to the click point so the Window Server's hit-test
         // matches the event coordinates rather than the cursor's current position.
         MouseHelpers.warpCursor(to: clickPoint)
@@ -92,11 +99,6 @@ extension MenuBarItemManager {
         // the event. Without this, the event can be routed using the cursor's
         // old position (e.g. the Apple menu) instead of the warped target.
         try await Task.sleep(for: .milliseconds(10))
-        MouseHelpers.hideCursor()
-        defer {
-            MouseHelpers.restoreCursorPosition(to: mouseLocation)
-            MouseHelpers.showCursor()
-        }
 
         let eventStartTime = Date.now
         do {
@@ -228,11 +230,25 @@ extension MenuBarItemManager {
         return AXHelpers.press(target)
     }
 
-    /// Clicks a menu bar item with the given mouse button.
-    ///
-    /// - Parameters:
-    ///   - item: The menu bar item to click.
-    ///   - mouseButton: The mouse button to click the item with.
+    /// Opens a hidden item directly from its owning application's AX element.
+    /// An accepted action is not repeated, even for toggle-only items whose
+    /// reaction cannot be observed. A failed action that opened a menu is also
+    /// treated as handled, so the fallback cannot immediately close that menu.
+    func activateHiddenItemWithoutMoving(_ item: MenuBarItem) async -> Bool {
+        guard appState?.settings.advanced.useAXClickDelivery == true else { return false }
+        let snapshot = ClickReactionVerifier.snapshot(for: item)
+        do {
+            try await AXItemActivator.activate(item: item, offscreen: true)
+            MenuBarItemManager.diagLog.debug("Scroll preview: activated \(item.logString) without moving cursor or item")
+            return true
+        } catch {
+            let reaction = await ClickReactionVerifier.verify(against: snapshot)
+            if reaction.didReact { return true }
+            MenuBarItemManager.diagLog.debug("Scroll preview: direct AX unavailable for \(item.logString): \(error)")
+            return false
+        }
+    }
+
     /// Clicks a menu bar item with the given mouse button.
     ///
     /// - Parameters:

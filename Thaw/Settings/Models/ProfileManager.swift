@@ -89,7 +89,7 @@ final class ProfileManager {
                 fatalError("Application Support directory not found")
             }
             self.profilesDirectory = appSupport
-                .appendingPathComponent("Thaw/Profiles", isDirectory: true)
+                .appendingPathComponent("ThawScrollPreview/Profiles", isDirectory: true)
         }
         manifestURL = self.profilesDirectory
             .appendingPathComponent("profiles.json")

@@ -21,3 +21,7 @@ plans/
 # Local badge mockups
 .tmp-badge-preview/
 default.profraw
+
+# Local scroll-preview builds and private settings snapshots
+.local-build/
+.local-install/

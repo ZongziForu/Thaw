@@ -39,6 +39,8 @@ final class IceBarPanel: NSPanel {
 
     /// Background cache task started when the panel is shown.
     private var cacheTask: Task<Void, Never>?
+    private var scrollGeometryTimer: AnyCancellable?
+    @Published private(set) var scrollViewport: CGRect? = nil
 
     /// Creates a new Thaw Bar panel with Liquid Glass support.
     init() {
@@ -110,12 +112,35 @@ final class IceBarPanel: NSPanel {
         cancellables = c
     }
 
+    fileprivate func menuBarScrollFrame(for screen: NSScreen) -> CGRect? {
+        guard let appState else { return nil }
+        let visible = appState.itemManager.itemCache[.visible]
+            .map { Bridging.getWindowBounds(for: $0.windowID) ?? $0.bounds }
+            .filter { $0.width > 0 && $0.minX >= screen.frame.minX && $0.minX < screen.frame.maxX }
+        let right = visible.map(\.minX).min() ?? screen.frame.maxX - 240
+        let appMenuEnd = screen.getApplicationMenuFrame()?.maxX ?? screen.frame.minX + 240
+        let left = max(appMenuEnd + 8, screen.frameOfNotch.map { $0.maxX + 8 } ?? screen.frame.minX)
+        return MenuBarScrollGeometry.viewport(screen: screen.frame, menuHeight: screen.getMenuBarHeightEstimate(),
+            leftBoundary: left, pinnedBoundary: right)
+    }
+
     /// Updates the panel's frame origin for display on the given screen.
     private func updateOrigin(for screen: NSScreen) {
         guard let appState else {
             return
         }
 
+        if appState.settings.displaySettings.configuration(for: screen.displayID).iceBarLayout == .menuBarScroll,
+           let viewport = menuBarScrollFrame(for: screen) {
+            if scrollViewport != viewport { scrollViewport = viewport }
+            isMovableByWindowBackground = false
+            hasShadow = false
+            if frame.origin != viewport.origin { setFrameOrigin(viewport.origin) }
+            return
+        }
+        if scrollViewport != nil { scrollViewport = nil }
+        isMovableByWindowBackground = true
+        hasShadow = true
         func getOrigin(for iceBarLocation: IceBarLocation) -> CGPoint {
             let menuBarHeight = screen.getMenuBarHeightEstimate()
             let defaultOriginY = ((screen.frame.maxY - 1) - menuBarHeight) - frame.height
@@ -240,6 +265,18 @@ final class IceBarPanel: NSPanel {
 
         updateOrigin(for: screen)
 
+        scrollGeometryTimer?.cancel()
+        if appState.settings.displaySettings.configuration(for: screen.displayID).iceBarLayout == .menuBarScroll {
+            // Status items can resize without the cached item list changing.
+            // Poll live geometry only while this viewport is on screen.
+            scrollGeometryTimer = Timer.publish(every: 0.25, tolerance: 0.05, on: .main, in: .common)
+                .autoconnect()
+                .sink { [weak self] _ in
+                    guard let self, isVisible else { return }
+                    updateOrigin(for: screen)
+                }
+        }
+
         // Color manager must be updated after updating the panel's origin,
         // but before it is shown.
         //
@@ -286,6 +323,8 @@ final class IceBarPanel: NSPanel {
     }
 
     override func close() {
+        scrollGeometryTimer?.cancel()
+        scrollGeometryTimer = nil
         CustomTooltipPanel.shared.dismiss()
         cacheTask?.cancel()
         cacheTask = nil
@@ -360,6 +399,7 @@ private struct IceBarContentView: View {
     let imageCache: MenuBarItemImageCache
     let menuBarManager: MenuBarManager
     @State private var frame = CGRect.zero
+    @State private var liveScrollViewport: CGRect?
     @State private var scrollIndicatorsFlashTrigger = 0
     @State private var cacheGracePeriodActive = true
     @State private var loadingTimedOut = false
@@ -383,6 +423,10 @@ private struct IceBarContentView: View {
         displaySettings.configuration(for: screen.displayID).iceBarLayout
     }
 
+    private var menuBarScrollWidth: CGFloat {
+        liveScrollViewport?.width ?? menuBarManager.iceBarPanel.menuBarScrollFrame(for: screen)?.width ?? 240
+    }
+
     private var gridColumns: Int {
         displaySettings.configuration(for: screen.displayID).gridColumns
     }
@@ -393,15 +437,16 @@ private struct IceBarContentView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        3
+        layout == .menuBarScroll ? 0 : 3
     }
 
     private var verticalPadding: CGFloat {
-        screen.hasNotch && configuration.hasRoundedShape ? 2 : 0
+        layout == .menuBarScroll ? 0 : (screen.hasNotch && configuration.hasRoundedShape ? 2 : 0)
     }
 
     private var contentHeight: CGFloat {
         let menuBarHeight = screen.getMenuBarHeightEstimate()
+        if layout == .menuBarScroll { return menuBarHeight }
         if configuration.shapeKind != .noShape, configuration.isInset, screen.hasNotch {
             return menuBarHeight - appState.appearanceManager.menuBarInsetAmount * 2
         }
@@ -450,7 +495,7 @@ private struct IceBarContentView: View {
     /// Total intrinsic height of all items/rows for the current layout.
     private var totalContentHeight: CGFloat {
         switch layout {
-        case .horizontal:
+        case .horizontal, .menuBarScroll:
             return contentHeight
         case .vertical:
             return CGFloat(items.count) * contentHeight
@@ -471,7 +516,7 @@ private struct IceBarContentView: View {
     var body: some View {
         ZStack {
             Group {
-                if layout == .horizontal {
+                if layout == .horizontal || layout == .menuBarScroll {
                     content.frame(height: contentHeight)
                 } else {
                     content.frame(height: min(totalContentHeight, maxContentHeight))
@@ -490,9 +535,11 @@ private struct IceBarContentView: View {
                     .foregroundStyle(Color(cgColor: configuration.current.borderColor))
             }
         }
-        .padding(5)
+        .padding(layout == .menuBarScroll ? 0 : 5)
         .frame(maxWidth: screen.frame.width)
-        .fixedSize(horizontal: true, vertical: layout == .horizontal)
+        .frame(width: layout == .menuBarScroll ? menuBarScrollWidth : nil)
+        .fixedSize(horizontal: layout != .menuBarScroll,
+                   vertical: layout == .horizontal || layout == .menuBarScroll)
         .onAppear {
             Self.diagLog.notice("""
             IceBarContentView appeared: \
@@ -508,6 +555,9 @@ private struct IceBarContentView: View {
             """)
         }
         .onFrameChange(update: $frame)
+        .onReceive(menuBarManager.iceBarPanel.$scrollViewport) { viewport in
+            liveScrollViewport = viewport
+        }
         .task(id: section) {
             cacheGracePeriodActive = true
             loadingTimedOut = false
@@ -643,6 +693,30 @@ private struct IceBarContentView: View {
                     scrollIndicatorsFlashTrigger += 1
                 }
 
+            case .menuBarScroll:
+                SmoothMenuBarScrollView {
+                    HStack(spacing: itemSpacing) {
+                        ForEach(items, id: \.windowID) { item in
+                            IceBarItemView(
+                                imageCache: imageCache,
+                                itemManager: itemManager,
+                                menuBarManager: menuBarManager,
+                                item: item,
+                                section: section,
+                                displayID: screen.displayID,
+                                maxHeight: itemMaxHeight,
+                                hasRoundedShape: configuration.hasRoundedShape,
+                                tooltipDelay: min(0.12, appState.settings.advanced.tooltipDelay),
+                                isLightBackground: isLightBackground,
+                                prefersDirectActivation: true
+                            )
+                        }
+                    }
+                    .frame(height: contentHeight)
+
+                }
+                .frame(width: menuBarScrollWidth, height: contentHeight)
+
             case .vertical:
                 ScrollView(.vertical) {
                     VStack(spacing: itemSpacing) {
@@ -733,6 +807,7 @@ private struct IceBarItemView: View {
     let hasRoundedShape: Bool
     let tooltipDelay: TimeInterval
     let isLightBackground: Bool
+    var prefersDirectActivation = false
 
     private var pillCornerRadius: CGFloat {
         guard let h = maxHeight, h > 0 else { return 4 }
@@ -764,6 +839,10 @@ private struct IceBarItemView: View {
                         IceBarItemView.diagLog.error("leftClick: failed for \(item.logString): \(error)")
                     }
                 } else {
+                    if prefersDirectActivation,
+                       await itemManager.activateHiddenItemWithoutMoving(item) {
+                        return
+                    }
                     // temporarilyShow handles move, click, and fallback click
                     // internally so that shownInterfaceWindow is always captured
                     // regardless of which click attempt succeeds.
@@ -932,8 +1011,8 @@ private struct IceBarItemClickView: NSViewRepresentable {
                 removeTrackingArea(tooltipTrackingArea)
             }
             let area = NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .activeAlways],
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                 owner: self,
                 userInfo: nil
             )

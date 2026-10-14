@@ -51,8 +51,8 @@ enum AXItemActivator {
     ///   reacting. Callers should fall back to the synthetic click path on any
     ///   error; ``ActivationError/actionFailed`` in particular now means the
     ///   item was left alone, so clicking it is safe.
-    static func activate(item: MenuBarItem) async throws {
-        guard let element = resolveElement(for: item) else {
+    static func activate(item: MenuBarItem, offscreen: Bool = false) async throws {
+        guard let element = resolveElement(for: item, skipHitTest: offscreen) else {
             throw ActivationError.elementNotFound
         }
 
@@ -121,11 +121,11 @@ enum AXItemActivator {
     ///    as `MenuBarItem.bounds`, so no conversion is needed).
     /// 2. Fall back to the owning app's extras menu bar, matching the child
     ///    whose AX frame contains the item's center.
-    private static func resolveElement(for item: MenuBarItem) -> UIElement? {
+    private static func resolveElement(for item: MenuBarItem, skipHitTest: Bool) -> UIElement? {
         let center = item.bounds.center
 
         try? systemWideElement.setMessagingTimeout(messagingTimeout)
-        if let hit = AXHelpers.element(at: center) {
+        if !skipHitTest, let hit = AXHelpers.element(at: center) {
             try? hit.setMessagingTimeout(messagingTimeout)
             return hit
         }

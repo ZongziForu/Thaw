@@ -1406,6 +1406,12 @@ final class MenuBarItemImageCache: @unchecked Sendable {
         await MainActor.run { [newImages] in
             var updatedCount = 0
             for (tag, newImage) in newImages where !CapturedImage.isVisuallyEqual(self.images[tag], newImage) {
+                // Offscreen AX activation can temporarily clear a status
+                // item's backing surface. Keep its last visible capture;
+                // intentionally empty spacers still have no visible history.
+                if !Self.shouldReplaceCapture(previous: self.images[tag]?.cgImage, incoming: newImage.cgImage) {
+                    continue
+                }
                 self.images[tag] = newImage
                 updateAccessOrder(for: tag)
                 updatedCount += 1
@@ -1414,6 +1420,11 @@ final class MenuBarItemImageCache: @unchecked Sendable {
                 MenuBarItemImageCache.diagLog.debug("refreshImages: ✓ updated \(updatedCount)/\(newImages.count) items (visually changed)")
             }
         }
+    }
+
+    nonisolated static func shouldReplaceCapture(previous: CGImage?, incoming: CGImage) -> Bool {
+        guard incoming.isTransparent(), let previous else { return true }
+        return previous.isTransparent()
     }
 
     /// Captures the images of the menu bar items in the given section and returns
@@ -1850,7 +1861,9 @@ final class MenuBarItemImageCache: @unchecked Sendable {
             }
 
             // Merge in the new images
-            images.merge(newImages) { _, new in new }
+            images.merge(newImages) { old, new in
+                Self.shouldReplaceCapture(previous: old.cgImage, incoming: new.cgImage) ? new : old
+            }
 
             // Enforce cache size limit using LRU eviction, but never evict
             // items that still exist in the menu bar (valid item tags).

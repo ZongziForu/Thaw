@@ -9,7 +9,7 @@
 import Foundation
 
 nonisolated enum MenuBarItemService {
-    static let name = "com.stonerl.Thaw.MenuBarItemService"
+    static let name = "com.yqc.ThawScrollPreview.MenuBarItemService"
 }
 
 nonisolated extension MenuBarItemService {
