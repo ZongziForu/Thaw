@@ -93,3 +93,22 @@ All 44 focused tests across six suites passed for the geometry, capture, AX,
 click reaction, and asynchronous acknowledgement helpers. Failed calibration
 also preserves the scroll panel after cleanup. These checks do not replace a
 fresh first-click device test. Release validation and installation follow.
+
+## Third iteration device crash (2026-10-15)
+
+The first device click terminated the preview. Crash report
+`Thaw-2026-10-15-143213.ips` points to `waitForStableGeometry`, where converting
+`NSWindow.windowNumber` to `CGWindowID` trapped on a negative/nonrepresentable
+value. The window-number assumption was wrong for this hosted status item.
+The 44 helper tests did not exercise that live AppKit/Window Server boundary.
+The experiment was disabled before relaunching the unchanged installed binary;
+no further positioning trial was requested on this build.
+
+The source fix passes the enumerated status item's already typed Window Server
+ID into the anchor lease, and reads its initial width from that same ID. It
+removes both NSWindow.windowNumber conversions rather than truncating the proxy
+number into a meaningless unsigned ID. This fix remains off the installed
+build until further validation; normal scroll/click operation stays enabled.
+
+The source fix compiled and all 44 focused tests passed again. No new runtime
+menu-placement success is claimed, and the installed experiment remains off.

@@ -60,6 +60,9 @@ final class ScrollMenuAnchorLease {
         panelToken = token
     }
     private let token: UUID
+    // Use the actual Window Server status item from enumeration. NSWindow's
+    // number can be a negative proxy for a Control Center-hosted status item.
+    private let anchorWindowID: CGWindowID
     private var isActive = true
     private var length: CGFloat
     private let minimumLength: CGFloat
@@ -67,10 +70,11 @@ final class ScrollMenuAnchorLease {
     private var expectedWidthChange: CGFloat
     private let plan: ScrollMenuAnchorGeometry.Plan
 
-    init(control: ControlItem, token: UUID, minimumLength: CGFloat,
+    init(control: ControlItem, token: UUID, anchorWindowID: CGWindowID, minimumLength: CGFloat,
          plan: ScrollMenuAnchorGeometry.Plan) {
         self.control = control
         self.token = token
+        self.anchorWindowID = anchorWindowID
         self.minimumLength = minimumLength
         self.plan = plan
         self.length = plan.length
@@ -95,8 +99,8 @@ final class ScrollMenuAnchorLease {
     func waitForStableGeometry(itemWindowID: CGWindowID? = nil) async -> CGRect? {
         var stability = ScrollMenuAnchorStability()
         for _ in 0 ..< 15 {
-            guard !Task.isCancelled, isActive, let window = control?.window,
-                  let anchor = Bridging.getWindowBounds(for: CGWindowID(window.windowNumber)) else { return nil }
+            guard !Task.isCancelled, isActive,
+                  let anchor = Bridging.getWindowBounds(for: anchorWindowID) else { return nil }
             let item = itemWindowID.flatMap { Bridging.getWindowBounds(for: $0) }
             if itemWindowID != nil, item == nil { return nil }
             if stability.observe(anchor: anchor, item: item, previousWidth: previousAnchorWidth,
@@ -116,8 +120,7 @@ final class ScrollMenuAnchorLease {
             let revised = min(plan.maximumLength, max(minimumLength, length + error))
             MenuBarItemManager.diagLog.notice("Scroll menu calibration: attempt=\(attempt) item=\(bounds.debugDescription) requestedLength=\(length) error=\(error) nextLength=\(revised)")
             guard attempt < 3, abs(revised - length) >= 0.5 else { return false }
-            guard let window = control?.window,
-                  let anchor = Bridging.getWindowBounds(for: CGWindowID(window.windowNumber)) else { return false }
+            guard let anchor = Bridging.getWindowBounds(for: anchorWindowID) else { return false }
             previousAnchorWidth = anchor.width
             expectedWidthChange = revised - length
             length = revised

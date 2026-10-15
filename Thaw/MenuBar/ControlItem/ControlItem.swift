@@ -178,14 +178,15 @@ final class ControlItem {
     let identifier: Identifier
     private var scrollMenuAnchor: (token: UUID, length: CGFloat)?
 
-    func beginScrollMenuAnchor(plan: ScrollMenuAnchorGeometry.Plan) -> ScrollMenuAnchorLease? {
+    func beginScrollMenuAnchor(plan: ScrollMenuAnchorGeometry.Plan, anchorWindowID: CGWindowID) -> ScrollMenuAnchorLease? {
         guard identifier == .visible, scrollMenuAnchor == nil,
               let window, window.frame.width > 0 else { return nil }
         let token = UUID()
-        let normalWidth = window.frame.width
+        guard let anchorBounds = Bridging.getWindowBounds(for: anchorWindowID), anchorBounds.width > 0 else { return nil }
+        let normalWidth = anchorBounds.width
         scrollMenuAnchor = (token, plan.length)
         updateStatusItem()
-        return ScrollMenuAnchorLease(control: self, token: token, minimumLength: normalWidth, plan: plan)
+        return ScrollMenuAnchorLease(control: self, token: token, anchorWindowID: anchorWindowID, minimumLength: normalWidth, plan: plan)
     }
 
     func adjustScrollMenuAnchor(token: UUID, length: CGFloat) {

@@ -648,7 +648,7 @@ extension MenuBarItemManager {
                let control = appState.menuBarManager.controlItem(withName: .visible) {
                 let panel = appState.menuBarManager.iceBarPanel
                 if let panelToken = panel.beginAnchoredMenu() {
-                    scrollLease = control.beginScrollMenuAnchor(plan: plan)
+                    scrollLease = control.beginScrollMenuAnchor(plan: plan, anchorWindowID: anchor.windowID)
                     if let scrollLease {
                         retainedScrollPanel = true
                         scrollLease.retainPanel(panel, token: panelToken)
