@@ -27,6 +27,13 @@ nonisolated enum ScrollMenuAnchorGeometry {
 @MainActor
 final class ScrollMenuAnchorLease {
     private weak var control: ControlItem?
+    private weak var panel: IceBarPanel?
+    private var panelToken: UUID?
+
+    func retainPanel(_ panel: IceBarPanel, token: UUID) {
+        self.panel = panel
+        panelToken = token
+    }
     private let token: UUID
     private var isActive = true
     private var length: CGFloat
@@ -42,12 +49,16 @@ final class ScrollMenuAnchorLease {
         self.length = plan.length
     }
 
-    isolated deinit { control?.endScrollMenuAnchor(token: token) }
+    isolated deinit {
+        control?.endScrollMenuAnchor(token: token)
+        if let panelToken { panel?.endAnchoredMenu(token: panelToken) }
+    }
 
     func release() {
         guard isActive else { return }
         isActive = false
         control?.endScrollMenuAnchor(token: token)
+        if let panelToken { panel?.endAnchoredMenu(token: panelToken) }
     }
 
     /// AppKit adds spacing around status items. Correct the measured result,

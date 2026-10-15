@@ -535,6 +535,12 @@ extension MenuBarItemManager {
             return .showFailed
         }
 
+        // Close on precondition failure as well; never leave a passthrough strip stuck.
+        defer {
+            if scrollClickX != nil, appState.menuBarManager.iceBarPanel.anchoredContent == nil {
+                appState.menuBarManager.iceBarPanel.hide()
+            }
+        }
         MenuBarItemManager.diagLog.debug("temporarilyShow: started for \(item.logString)")
 
         // Determine the displayID for this item.
@@ -638,10 +644,34 @@ extension MenuBarItemManager {
             if let plan = ScrollMenuAnchorGeometry.plan(anchor: anchorBounds, itemWidth: item.liveBounds.width,
                                                         requestedX: scrollClickX, minimumX: minimumX),
                let control = appState.menuBarManager.controlItem(withName: .visible) {
-                scrollLease = control.beginScrollMenuAnchor(plan: plan)
+                let panel = appState.menuBarManager.iceBarPanel
+                if let panelToken = panel.beginAnchoredMenu() {
+                    scrollLease = control.beginScrollMenuAnchor(plan: plan)
+                    if let scrollLease {
+                        scrollLease.retainPanel(panel, token: panelToken)
+                    } else {
+                        panel.endAnchoredMenu(token: panelToken)
+                    }
+                }
                 MenuBarItemManager.diagLog.notice("Scroll menu anchor: requested=\(scrollClickX) target=\(plan.centerX) length=\(plan.length)")
-                await eventSleep(for: .milliseconds(60))
+                // Resizing an NSStatusItem is asynchronous. Do not start dragging
+                // against a width the Window Server has not yet applied.
+                var previous: CGRect?
+                var stableSamples = 0
+                for _ in 0 ..< 10 {
+                    await eventSleep(for: .milliseconds(50))
+                    let bounds = Bridging.getWindowBounds(for: anchor.windowID)
+                    if let bounds, bounds == previous, abs(bounds.width - plan.length) <= 2 {
+                        stableSamples += 1
+                        if stableSamples >= 2 { break }
+                    } else { stableSamples = 0 }
+                    previous = bounds
+                }
             }
+        }
+
+        if scrollClickX != nil, scrollLease == nil {
+            appState.menuBarManager.iceBarPanel.hide()
         }
 
         // Record the item's original section early so we can relocate it if its app
@@ -774,6 +804,10 @@ extension MenuBarItemManager {
 
         // Re-fetch the item so getCurrentBounds inside postClickEvents uses
         // a fresh window reference rather than the stale pre-move struct.
+        if scrollLease != nil {
+            // The owning application's AX tree can lag behind Window Server geometry.
+            await eventSleep(for: .milliseconds(100))
+        }
         let clickItem = await refreshedClickTarget(for: item, on: resolvedDisplayID)
 
         if !fastPath {
@@ -800,7 +834,7 @@ extension MenuBarItemManager {
                 // Single attempt: the item is already at a known-good position with
                 // fresh bounds. If it fails, fall through to the fallback path below
                 // rather than spending 3× the semaphore timeout here.
-                let reaction = try await click(item: clickItem, with: mouseButton, skipInputPause: true, maxAttempts: 1)
+                let reaction = try await click(item: clickItem, with: mouseButton, skipInputPause: true, maxAttempts: 1, resolveAXThroughOwner: scrollLease != nil)
                 observedInterfaceWindowID = reaction.openedWindowID
             } catch {
                 MenuBarItemManager.diagLog.error("Error clicking item (first attempt): \(error); attempting fallback click")
@@ -852,6 +886,9 @@ extension MenuBarItemManager {
             among: interfaceCandidates,
             interfacePIDs: context.interfacePIDs
         )
+        if scrollLease != nil {
+            MenuBarItemManager.diagLog.notice("Scroll menu anchor: trackedInterface=\(context.shownInterfaceWindow?.windowID ?? 0) (zero means menu opening is unverified)")
+        }
 
         return .movedAndClicked
     }

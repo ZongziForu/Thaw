@@ -39,3 +39,33 @@ single preview-wide preference even though it appears in display controls.
 
 To stop the experiment, turn its checkbox off. For exact baseline recovery,
 quit the preview and restore the application archive from the baseline release.
+
+## Device feedback: first prototype failed (2026-10-14)
+
+The user observed the scroll strip and its blur disappear, a native fan icon
+jump between positions, and the other preview icons vanish. Logs show that the
+first attempt fell back after alignment failure; on the second attempt only the
+native icon's center aligned (about 0.25 pt error). AX activation failed frame
+verification and synthetic event acknowledgement did not prove a menu opened.
+The first prototype is not a working click-position menu implementation.
+
+## Second prototype (2026-10-15, awaiting device validation)
+
+Keep the existing panel and hosting view while relocating ThermalForge. Freeze
+its item list, cached artwork, and viewport until rehide completes; leave the
+material background in place. The panel passes mouse events through during the
+native interaction. An ownership token restores live geometry and input when
+the native anchor lease ends; closing the panel also clears the visual freeze.
+WeChat continues to use its app artwork, including while the strip is frozen.
+
+Wait for the anchor's measured width and origin to stabilize before dragging.
+Resolve AX delivery through the target application's extras menu bar rather
+than hit-testing the preview, while retaining the existing frame check.
+Log the tracked interface window separately: successful event delivery alone
+still does not establish that the menu appeared or appeared at the desired
+position. Other applications keep the baseline path. The experimental switch
+was turned off after the failed first prototype.
+
+Validation for the second prototype: all 40 focused tests across the same five
+suites passed on 2026-10-15. These tests do not simulate a foreign application's
+native menu or establish visual success. Device acceptance remains pending.

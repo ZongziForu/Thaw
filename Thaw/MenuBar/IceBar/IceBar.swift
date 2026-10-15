@@ -42,6 +42,34 @@ final class IceBarPanel: NSPanel {
     private var scrollGeometryTimer: AnyCancellable?
     @Published private(set) var scrollViewport: CGRect? = nil
 
+    struct AnchoredContent {
+        let token: UUID
+        let items: [MenuBarItem]
+        let images: [MenuBarItemTag: NSImage]
+    }
+    @Published private(set) var anchoredContent: AnchoredContent?
+
+    /// Keep the visual strip intact while its real item moves underneath it.
+    /// Mouse passthrough prevents our overlay from intercepting native delivery.
+    func beginAnchoredMenu() -> UUID? {
+        guard isVisible, anchoredContent == nil, let appState, let currentSection else { return nil }
+        let token = UUID()
+        cacheTask?.cancel()
+        anchoredContent = AnchoredContent(token: token,
+            items: appState.itemManager.itemCache.managedItems(for: currentSection),
+            images: appState.imageCache.images.mapValues { $0.nsImage })
+        ignoresMouseEvents = true
+        CustomTooltipPanel.shared.dismiss()
+        return token
+    }
+
+    func endAnchoredMenu(token: UUID) {
+        guard anchoredContent?.token == token else { return }
+        anchoredContent = nil
+        ignoresMouseEvents = false
+        if let screen { updateOrigin(for: screen) }
+    }
+
     /// Creates a new Thaw Bar panel with Liquid Glass support.
     init() {
         super.init(
@@ -126,7 +154,7 @@ final class IceBarPanel: NSPanel {
 
     /// Updates the panel's frame origin for display on the given screen.
     private func updateOrigin(for screen: NSScreen) {
-        guard let appState else {
+        guard anchoredContent == nil, let appState else {
             return
         }
 
@@ -323,6 +351,8 @@ final class IceBarPanel: NSPanel {
     }
 
     override func close() {
+        anchoredContent = nil
+        ignoresMouseEvents = false
         scrollGeometryTimer?.cancel()
         scrollGeometryTimer = nil
         CustomTooltipPanel.shared.dismiss()
@@ -337,7 +367,7 @@ final class IceBarPanel: NSPanel {
 
     /// Resizes the panel to match the hosting view's intrinsic content size.
     func resizeToContent() {
-        guard let contentView, let screen else { return }
+        guard anchoredContent == nil, let contentView, let screen else { return }
         let ideal = contentView.intrinsicContentSize
         guard ideal != .zero, ideal != frame.size else { return }
         setFrame(NSRect(origin: frame.origin, size: ideal), display: true, animate: false)
@@ -400,6 +430,7 @@ private struct IceBarContentView: View {
     let menuBarManager: MenuBarManager
     @State private var frame = CGRect.zero
     @State private var liveScrollViewport: CGRect?
+    @State private var anchoredContent: IceBarPanel.AnchoredContent?
     @AppStorage("ScrollClickPositionMenus") private var anchorsMenusAtClick = false
     @State private var scrollIndicatorsFlashTrigger = 0
     @State private var cacheGracePeriodActive = true
@@ -409,7 +440,7 @@ private struct IceBarContentView: View {
     let section: MenuBarSection.Name
 
     private var items: [MenuBarItem] {
-        itemManager.itemCache.managedItems(for: section)
+        anchoredContent?.items ?? itemManager.itemCache.managedItems(for: section)
     }
 
     private var configuration: MenuBarAppearanceConfigurationV2 {
@@ -556,6 +587,9 @@ private struct IceBarContentView: View {
             """)
         }
         .onFrameChange(update: $frame)
+        .onReceive(menuBarManager.iceBarPanel.$anchoredContent) { snapshot in
+            anchoredContent = snapshot
+        }
         .onReceive(menuBarManager.iceBarPanel.$scrollViewport) { viewport in
             liveScrollViewport = viewport
         }
@@ -617,7 +651,7 @@ private struct IceBarContentView: View {
             .onAppear {
                 Self.diagLog.debug("IceBar content: showing '\(self.cacheGracePeriodActive ? "Loading…" : "No items")' for section \(self.section.logString) (grace period active: \(self.cacheGracePeriodActive))")
             }
-        } else if itemManager.itemCache.managedItems.isEmpty {
+        } else if anchoredContent == nil, itemManager.itemCache.managedItems.isEmpty {
             HStack {
                 if loadingTimedOut {
                     Text("Unable to load menu bar items")
@@ -639,7 +673,7 @@ private struct IceBarContentView: View {
             .onAppear {
                 Self.diagLog.warning("IceBar content: showing 'Loading menu bar items…' — itemCache.managedItems is EMPTY. This means the item cache has never been populated.")
             }
-        } else if imageCache.cacheFailed(for: section) {
+        } else if anchoredContent == nil, imageCache.cacheFailed(for: section) {
             HStack {
                 if cacheGracePeriodActive {
                     Text("Loading menu bar items…")
@@ -710,7 +744,8 @@ private struct IceBarContentView: View {
                                 tooltipDelay: min(0.12, appState.settings.advanced.tooltipDelay),
                                 isLightBackground: isLightBackground,
                                 prefersDirectActivation: true,
-                                anchorsMenusAtClick: anchorsMenusAtClick
+                                anchorsMenusAtClick: anchorsMenusAtClick,
+                                anchoredImage: anchoredContent?.images[item.tag]
                             )
                         }
                     }
@@ -811,6 +846,7 @@ private struct IceBarItemView: View {
     let isLightBackground: Bool
     var prefersDirectActivation = false
     var anchorsMenusAtClick = false
+    var anchoredImage: NSImage?
 
     private var pillCornerRadius: CGFloat {
         guard let h = maxHeight, h > 0 else { return 4 }
@@ -826,13 +862,13 @@ private struct IceBarItemView: View {
             let clickX = anchorsMenusAtClick ? NSEvent.mouseLocation.x : nil
             IceBarItemView.diagLog.debug("leftClick: user clicked \(item.logString)")
             let panel = menuBarManager.iceBarPanel
-            menuBarManager.section(withName: section)?.hide()
+            let positionsThisMenu = anchorsMenusAtClick && item.tag.namespace == .string("com.thermalforge.app")
+            if !positionsThisMenu { menuBarManager.section(withName: section)?.hide() }
             Task {
                 // Wait until the IceBar panel is fully closed before checking
                 // item visibility. Uses KVO on isVisible so we resume as soon
                 // as the panel hides rather than busy-polling.
-                await panel.waitUntilClosed(timeout: .milliseconds(200))
-                let positionsThisMenu = anchorsMenusAtClick && item.tag.namespace == .string("com.thermalforge.app")
+                if !positionsThisMenu { await panel.waitUntilClosed(timeout: .milliseconds(200)) }
                 if !positionsThisMenu, let liveItem = await liveOnScreenItem(matching: item, on: displayID) {
                     do {
                         try await itemManager.click(item: liveItem, with: .left)
@@ -902,6 +938,7 @@ private struct IceBarItemView: View {
            let icon = MenuBarScrollIconAssets.weChat {
             return icon
         }
+        if let anchoredImage { return anchoredImage }
         guard let cachedImage = imageCache.images[item.tag] else {
             return nil
         }

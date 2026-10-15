@@ -269,7 +269,8 @@ extension MenuBarItemManager {
         item: MenuBarItem,
         with mouseButton: CGMouseButton,
         skipInputPause: Bool = false,
-        maxAttempts: Int = 3
+        maxAttempts: Int = 3,
+        resolveAXThroughOwner: Bool = false
     ) async throws -> ClickReactionVerifier.Reaction {
         guard let appState else {
             throw EventError.cannotComplete
@@ -278,7 +279,7 @@ extension MenuBarItemManager {
         if mouseButton == .left, appState.settings.advanced.useAXClickDelivery == true {
             let snapshot = ClickReactionVerifier.snapshot(for: item)
             do {
-                try await AXItemActivator.activate(item: item)
+                try await AXItemActivator.activate(item: item, offscreen: resolveAXThroughOwner)
                 MenuBarItemManager.diagLog.debug("Activated \(item.logString) via AX click delivery")
                 return await ClickReactionVerifier.verify(against: snapshot)
             } catch {
