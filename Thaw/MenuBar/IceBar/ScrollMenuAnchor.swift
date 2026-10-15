@@ -22,6 +22,31 @@ nonisolated enum ScrollMenuAnchorGeometry {
     }
 }
 
+/// A width assignment is asynchronous. Stable stale frames must not count as
+/// acknowledgement of a new assignment, or successive corrections overshoot.
+nonisolated struct ScrollMenuAnchorStability {
+    private var previous: (anchor: CGRect, item: CGRect?)?
+    private var matches = 0
+
+    mutating func observe(anchor: CGRect, item: CGRect?, previousWidth: CGFloat, expectedWidthChange: CGFloat) -> Bool {
+        // AppKit's outer window includes padding beyond NSStatusItem.length.
+        // Acknowledge a change in the requested direction, not equality to length.
+        let change = anchor.width - previousWidth
+        guard anchor.width.isFinite, previousWidth.isFinite, expectedWidthChange.isFinite,
+              abs(expectedWidthChange) < 0.5 ||
+                (abs(change) >= 0.5 && change * expectedWidthChange > 0) else {
+            previous = nil
+            matches = 0
+            return false
+        }
+        if let previous, previous.anchor == anchor, previous.item == item {
+            matches += 1
+        } else { matches = 1 }
+        previous = (anchor, item)
+        return matches >= 4
+    }
+}
+
 /// Held until the real menu closes and its item is rehidden. Ownership prevents
 /// stale cleanup from undoing a newer anchor operation.
 @MainActor
@@ -38,6 +63,8 @@ final class ScrollMenuAnchorLease {
     private var isActive = true
     private var length: CGFloat
     private let minimumLength: CGFloat
+    private var previousAnchorWidth: CGFloat
+    private var expectedWidthChange: CGFloat
     private let plan: ScrollMenuAnchorGeometry.Plan
 
     init(control: ControlItem, token: UUID, minimumLength: CGFloat,
@@ -47,6 +74,8 @@ final class ScrollMenuAnchorLease {
         self.minimumLength = minimumLength
         self.plan = plan
         self.length = plan.length
+        previousAnchorWidth = minimumLength
+        expectedWidthChange = plan.length - minimumLength
     }
 
     isolated deinit {
@@ -61,24 +90,39 @@ final class ScrollMenuAnchorLease {
         if let panelToken { panel?.endAnchoredMenu(token: panelToken) }
     }
 
-    /// AppKit adds spacing around status items. Correct the measured result,
-    /// rather than assuming a length assignment gives an exact pixel position.
+    /// Observe the same acknowledged geometry four times (80 ms apart) before
+    /// moving or correcting again. Both the anchor and real item must settle.
+    func waitForStableGeometry(itemWindowID: CGWindowID? = nil) async -> CGRect? {
+        var stability = ScrollMenuAnchorStability()
+        for _ in 0 ..< 15 {
+            guard !Task.isCancelled, isActive, let window = control?.window,
+                  let anchor = Bridging.getWindowBounds(for: CGWindowID(window.windowNumber)) else { return nil }
+            let item = itemWindowID.flatMap { Bridging.getWindowBounds(for: $0) }
+            if itemWindowID != nil, item == nil { return nil }
+            if stability.observe(anchor: anchor, item: item, previousWidth: previousAnchorWidth,
+                                 expectedWidthChange: expectedWidthChange) {
+                return item ?? anchor
+            }
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+        return nil
+    }
+
     func settle(itemWindowID: CGWindowID) async -> Bool {
-        for _ in 0 ..< 3 {
-            guard !Task.isCancelled, isActive else { return false }
-            try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, isActive else { return false }
-            guard let bounds = Bridging.getWindowBounds(for: itemWindowID) else { return false }
+        for attempt in 0 ..< 4 {
+            guard let bounds = await waitForStableGeometry(itemWindowID: itemWindowID) else { return false }
             let error = bounds.midX - plan.centerX
             if abs(error) <= 2 { return true }
             let revised = min(plan.maximumLength, max(minimumLength, length + error))
-            if abs(revised - length) < 0.5 { return false }
+            MenuBarItemManager.diagLog.notice("Scroll menu calibration: attempt=\(attempt) item=\(bounds.debugDescription) requestedLength=\(length) error=\(error) nextLength=\(revised)")
+            guard attempt < 3, abs(revised - length) >= 0.5 else { return false }
+            guard let window = control?.window,
+                  let anchor = Bridging.getWindowBounds(for: CGWindowID(window.windowNumber)) else { return false }
+            previousAnchorWidth = anchor.width
+            expectedWidthChange = revised - length
             length = revised
             control?.adjustScrollMenuAnchor(token: token, length: length)
         }
-        try? await Task.sleep(for: .milliseconds(50))
-        guard !Task.isCancelled, isActive,
-              let bounds = Bridging.getWindowBounds(for: itemWindowID) else { return false }
-        return abs(bounds.midX - plan.centerX) <= 4
+        return false
     }
 }

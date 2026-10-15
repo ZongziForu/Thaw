@@ -535,9 +535,11 @@ extension MenuBarItemManager {
             return .showFailed
         }
 
-        // Close on precondition failure as well; never leave a passthrough strip stuck.
+        var retainedScrollPanel = false
+        // A cancelled calibration restores input and keeps the strip available.
         defer {
-            if scrollClickX != nil, appState.menuBarManager.iceBarPanel.anchoredContent == nil {
+            if !retainedScrollPanel, scrollClickX != nil,
+               appState.menuBarManager.iceBarPanel.anchoredContent == nil {
                 appState.menuBarManager.iceBarPanel.hide()
             }
         }
@@ -648,30 +650,24 @@ extension MenuBarItemManager {
                 if let panelToken = panel.beginAnchoredMenu() {
                     scrollLease = control.beginScrollMenuAnchor(plan: plan)
                     if let scrollLease {
+                        retainedScrollPanel = true
                         scrollLease.retainPanel(panel, token: panelToken)
                     } else {
                         panel.endAnchoredMenu(token: panelToken)
                     }
                 }
                 MenuBarItemManager.diagLog.notice("Scroll menu anchor: requested=\(scrollClickX) target=\(plan.centerX) length=\(plan.length)")
-                // Resizing an NSStatusItem is asynchronous. Do not start dragging
-                // against a width the Window Server has not yet applied.
-                var previous: CGRect?
-                var stableSamples = 0
-                for _ in 0 ..< 10 {
-                    await eventSleep(for: .milliseconds(50))
-                    let bounds = Bridging.getWindowBounds(for: anchor.windowID)
-                    if let bounds, bounds == previous, abs(bounds.width - plan.length) <= 2 {
-                        stableSamples += 1
-                        if stableSamples >= 2 { break }
-                    } else { stableSamples = 0 }
-                    previous = bounds
+                if let scrollLease, await scrollLease.waitForStableGeometry() == nil {
+                    MenuBarItemManager.diagLog.notice("Scroll menu anchor: initial layout never acknowledged; cancelling before move")
+                    scrollLease.release()
+                    return .showFailed
                 }
             }
         }
 
-        if scrollClickX != nil, scrollLease == nil {
-            appState.menuBarManager.iceBarPanel.hide()
+        if scrollClickX != nil, item.tag.namespace == .string("com.thermalforge.app"), scrollLease == nil {
+            MenuBarItemManager.diagLog.notice("Scroll menu anchor: unavailable; cancelling instead of opening at baseline position")
+            return .showFailed
         }
 
         // Record the item's original section early so we can relocate it if its app
@@ -793,9 +789,10 @@ extension MenuBarItemManager {
 
         if let scrollLease {
             if !(await scrollLease.settle(itemWindowID: item.windowID)) {
+                MenuBarItemManager.diagLog.notice("Scroll menu anchor: alignment failed; cancelling without opening a misplaced menu")
+                await rehideTemporarilyShownItems(force: true)
                 scrollLease.release()
-                await eventSleep(for: .milliseconds(50))
-                MenuBarItemManager.diagLog.notice("Scroll menu anchor: alignment failed; restored baseline position")
+                return .movedButClickFailed
             }
             if let bounds = Bridging.getWindowBounds(for: item.windowID) {
                 MenuBarItemManager.diagLog.notice("Scroll menu anchor: actualCenter=\(bounds.midX) requested=\(scrollClickX ?? 0)")

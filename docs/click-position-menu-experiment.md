@@ -69,3 +69,27 @@ was turned off after the failed first prototype.
 Validation for the second prototype: all 40 focused tests across the same five
 suites passed on 2026-10-15. These tests do not simulate a foreign application's
 native menu or establish visual success. Device acceptance remains pending.
+
+## Second prototype device outcome and third iteration (2026-10-15)
+
+Three device attempts: the first two failed alignment and visibly fell back to
+the baseline position; the third succeeded according to the user. Its measured
+icon center was 745.5 pt versus a requested 746.277 pt (about 0.78 pt difference),
+and the application interface was tracked. This establishes an occasionally
+working path, not reliable behavior. The switch was turned off and the preview
+restarted after the test, retaining the normal scrolling/clicking behavior.
+
+The third iteration replaces 50 ms incremental correction with a bounded wait
+for four unchanged samples 80 ms apart. Resize acknowledgement checks movement
+in the requested direction against the prior measured width: AppKit's outer
+window includes padding, so equality with NSStatusItem.length is inappropriate.
+The real item's bounds must also remain unchanged before each correction.
+Failed initial acknowledgement cancels before moving; failed final alignment
+rehides the item without opening a menu in the wrong place. This avoids treating
+an acknowledged event or an automatic baseline fallback as positioning success.
+Device validation of this iteration is still required.
+
+All 44 focused tests across six suites passed for the geometry, capture, AX,
+click reaction, and asynchronous acknowledgement helpers. Failed calibration
+also preserves the scroll panel after cleanup. These checks do not replace a
+fresh first-click device test. Release validation and installation follow.
